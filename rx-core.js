@@ -152,7 +152,7 @@ export function rxId({ clinic, rxNo, date, doctor }) {
  * Each reminder keeps the same UID every time it is made (prescription · drug · dose
  * number) with a newer SEQUENCE, so adding again can update instead of duplicate
  * (whether it does is up to the phone's calendar — a page can never delete events).
- * items: [{pos (drug position on the prescription), name, dose, times:[minutes], days, everyDays}]
+ * items: [{pos (drug position on the prescription), name, dose, times:[minutes], days, everyDays, start? (own first day)}]
  */
 export function buildIcs({ rxNo, clinic, doctor, date = '', items, start, now = new Date() }) {
   const id = rxId({ clinic, rxNo, date, doctor })
@@ -163,7 +163,8 @@ export function buildIcs({ rxNo, clinic, doctor, date = '', items, start, now = 
     const every = x.everyDays || 1
     const count = Math.max(1, Math.ceil(x.days / every))
     x.times.forEach((t, k) => {
-      const at = new Date(start.getFullYear(), start.getMonth(), start.getDate(), 0, t)
+      const s0 = x.start || start
+      const at = new Date(s0.getFullYear(), s0.getMonth(), s0.getDate(), 0, t)
       const title = x.dose ? `${x.name} · ${x.dose}` : x.name
       L.push('BEGIN:VEVENT',
         `UID:clinosis-${id}-d${(x.pos ?? i) + 1}-n${k + 1}@clinosis`,

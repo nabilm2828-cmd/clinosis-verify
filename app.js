@@ -54,8 +54,10 @@ async function run() {
   plans = r.drugs.map((d) => {
     const p = parseDose(d.dose)
     const days = parseDays(d.duration)
-    if (p && p.prn) return { on: false, prn: true, perDay: 1, everyDays: 1, intervalH: null, bedtime: false, days }
-    return { on: true, prn: false, perDay: p ? p.perDay : null, everyDays: p ? p.everyDays : 1, intervalH: p ? p.intervalH : null, bedtime: p ? p.bedtime : false, days }
+    // each drug has its own first-dose time and day (owner, 25 Nov 2026); "before sleep" starts at 10 PM
+    const time = p && p.bedtime ? '22:00' : '08:00'
+    if (p && p.prn) return { on: false, prn: true, perDay: 1, everyDays: 1, intervalH: null, bedtime: false, days, time, date: '' }
+    return { on: true, prn: false, perDay: p ? p.perDay : null, everyDays: p ? p.everyDays : 1, intervalH: p ? p.intervalH : null, bedtime: false, days, time, date: '' }
   })
   out.innerHTML = `
     <section class="card state ok compact" role="status"><span class="icon" aria-hidden="true">${okIcon}</span>
@@ -87,9 +89,9 @@ function openRemind() {
   box.innerHTML = `
     <div class="panel" id="panel">
       <h3>${bellIcon}<span>مواعيد الدوا</span></h3>
-      ${wasAdded() ? `<p class="warn">ضفت مواعيد للروشتة دي قبل كده. امسح القديمة الأول عشان ما تتكررش: ${deleteSteps}</p>` : ''}
+      ${wasAdded() ? `<div class="warn again"><p>ضفت مواعيد للروشتة دي قبل كده، والموبايل مش بيمسحها لوحده. امسح القديمة الأول عشان ما تتكررش: ${deleteSteps}</p>
+        <label class="ack"><input type="checkbox" id="ack"><span>مسحت المواعيد القديمة</span></label></div>` : ''}
       ${finishedLongAgo() ? `<p class="warn">الروشتة دي من <span class="num">${esc(dmy(rx.date))}</span> ومدتها خلصت. اسأل دكتورك قبل ما تعيد الدوا.</p>` : ''}
-      <label class="start"><span>أول جرعة الساعة كام؟</span><input type="time" id="start" value="08:00" step="900"></label>
       <div class="plans">${rx.drugs.map((d, i) => planRow(d, i)).join('')}</div>
       <p class="err" id="err" role="alert" hidden></p>
       <button type="button" class="btn primary" id="make">ضيف المواعيد لموبايلك</button>
@@ -100,7 +102,7 @@ function openRemind() {
   panel.addEventListener('input', onPanelInput)
   $('#make').addEventListener('click', make)
   $('#close').addEventListener('click', () => { run() })
-  $('#start').focus()
+  ;($('#ack') || $('#panel button.chip.on') || $('#make')).focus()
   refreshTimes()
 }
 
@@ -120,22 +122,27 @@ function planRow(d, i) {
         <label class="days"><span>لمدة</span><input type="number" inputmode="numeric" min="1" max="365" data-days="${i}" value="${p.days ?? ''}" placeholder="—"><span>يوم</span></label>
         <span class="every">${p.on && p.perDay ? `${timesWord(p.perDay)} ${every}` : ''}</span>
       </div>
+      ${p.on ? `<div class="plan-when">
+        <label><span>أول جرعة</span><input type="time" data-time="${i}" value="${p.time}" step="900"></label>
+        <label><span>من يوم</span><input type="date" data-date="${i}" value="${dayOf(p)}" min="${isoDay(new Date())}"></label>
+      </div>` : ''}
       <p class="times" data-times="${i}"></p>
     </div>`
 }
 
-function startMin() {
-  const v = $('#start')?.value || '08:00'
-  const [h, m] = v.split(':').map(Number)
-  return (h || 0) * 60 + (m || 0)
-}
+const minsOf = (v) => { const [h, m] = String(v || '08:00').split(':').map(Number); return (h || 0) * 60 + (m || 0) }
+const isoDay = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+/** The drug's first day: what the patient picked, else today (or tomorrow when the time already passed). */
+const dayOf = (p) => p.date || isoDay(firstDay(new Date(), minsOf(p.time)))
+const dateOf = (iso) => { const [y, m, d] = iso.split('-').map(Number); return new Date(y, m - 1, d) }
 
 function refreshTimes() {
-  const s = startMin()
   plans.forEach((p, i) => {
     const el = document.querySelector(`[data-times="${i}"]`)
     if (!el) return
-    el.textContent = p.on && p.perDay ? doseTimes(p, s).map((t) => clock(t)).join(' · ') : ''
+    el.textContent = p.on && p.perDay ? doseTimes(p, minsOf(p.time)).map((t) => clock(t)).join(' · ') : ''
+    const dt = document.querySelector(`[data-date="${i}"]`)
+    if (dt && !p.date) dt.value = dayOf(p)
   })
 }
 
@@ -157,7 +164,10 @@ function onPanelClick(e) {
 }
 
 function onPanelInput(e) {
-  if (e.target.id === 'start') return refreshTimes()
+  const t = e.target
+  if (t.id === 'ack') { $('#err').hidden = true; return }
+  if (t.dataset.time !== undefined) { plans[Number(t.dataset.time)].time = t.value || '08:00'; return refreshTimes() }
+  if (t.dataset.date !== undefined) { plans[Number(t.dataset.date)].date = t.value; t.classList.remove('bad'); $('#err').hidden = true; return }
   const i = e.target.dataset.days
   if (i === undefined) return
   const n = Number(e.target.value)
@@ -186,11 +196,17 @@ async function make() {
     noDays.forEach(({ i }) => document.querySelector(`[data-days="${i}"]`)?.classList.add('bad'))
     return fail('اكتب المدة بالأيام (من 1 لـ 365).')
   }
-  const s = startMin()
+  const today = isoDay(new Date())
+  const badDay = chosen.filter(({ p }) => !/^\d{4}-\d{2}-\d{2}$/.test(dayOf(p)) || dayOf(p) < today)
+  if (badDay.length) {
+    badDay.forEach(({ i }) => document.querySelector(`[data-date="${i}"]`)?.classList.add('bad'))
+    return fail('اختار يوم البداية من النهارده أو بعده.')
+  }
+  if ($('#ack') && !$('#ack').checked) return fail('امسح المواعيد القديمة من التقويم الأول، وبعدين علّم "مسحت المواعيد القديمة".')
   const now = new Date()
-  const start = firstDay(now, s)
   if (await iosNotSafari()) return toSafari()
-  const items = chosen.map(({ p, i }) => ({ pos: i, name: rx.drugs[i].name, dose: rx.drugs[i].dose, times: doseTimes(p, s), days: p.days, everyDays: p.everyDays }))
+  const items = chosen.map(({ p, i }) => ({ pos: i, name: rx.drugs[i].name, dose: rx.drugs[i].dose, times: doseTimes(p, minsOf(p.time)), days: p.days, everyDays: p.everyDays, start: dateOf(dayOf(p)) }))
+  const start = items[0].start
   const ics = buildIcs({ rxNo: rx.rxNo, clinic: rx.clinic, doctor: rx.doctor, date: rx.date, items, start, now })
   const name = `clinosis-rx-${rx.rxNo}.ics`
   const delivered = await deliver(ics, name)
@@ -242,7 +258,7 @@ function download(blob, name) {
 
 function done(items, start, now, ics, name, how) {
   const today = new Date(now.getFullYear(), now.getMonth(), now.getDate())
-  const when = start.getTime() === today.getTime() ? 'النهارده' : 'بكرة'
+  const when = (d) => { const n = Math.round((d - today) / 864e5); return n === 0 ? 'النهارده' : n === 1 ? 'بكرة' : `يوم <span class="num">${d.getDate()}/${d.getMonth() + 1}</span>` }
   const total = items.reduce((n, x) => n + x.times.length, 0)
   $('#remind').innerHTML = `
     <div class="panel done" role="status">
@@ -252,7 +268,7 @@ function done(items, start, now, ics, name, how) {
       <ul class="sched">${items.map((x) => `
         <li><span class="drug">${esc(x.name)}</span>
           <span class="when">${x.times.map((t) => `<bdi>${clock(t)}</bdi>`).join(' · ')}</span>
-          <span class="dose">${x.everyDays === 2 ? 'يوم بعد يوم' : x.everyDays === 7 ? 'مرة في الأسبوع' : 'كل يوم'} · لمدة ${dayWord(x.days)} · تبدأ ${when}</span></li>`).join('')}</ul>
+          <span class="dose">${x.everyDays === 2 ? 'يوم بعد يوم' : x.everyDays === 7 ? 'مرة في الأسبوع' : 'كل يوم'} · لمدة ${dayWord(x.days)} · تبدأ ${when(x.start || start)}</span></li>`).join('')}</ul>
       <p class="hint">${total === 1 ? 'تذكير واحد' : total <= 10 ? `${total} تذكيرات` : `${total} تذكير`}. لو التقويم ما فتحش لوحده، افتح الملف <span class="num">${esc(name)}</span> من التنزيلات.</p>
       ${isIOS() ? `<p class="hint">لو نزل ملف بدل ما يفتح التقويم: <a href="${esc(safariLink())}">افتح الصفحة في Safari</a>.</p>` : ''}
       <button type="button" class="btn primary" id="again">ضيفها تاني</button>
