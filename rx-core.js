@@ -138,13 +138,25 @@ function fold(line) {
   return out.join('\r\n ')
 }
 
+/** A short id for one prescription (same on every phone, different between clinics): FNV-1a of what the QR names. */
+export function rxId({ clinic, rxNo, date, doctor }) {
+  let h = 0x811c9dc5
+  for (const b of new TextEncoder().encode(`${clinic}|${rxNo}|${date}|${doctor}`)) h = Math.imul(h ^ b, 0x01000193) >>> 0
+  return h.toString(16).padStart(8, '0')
+}
+
 /**
  * A calendar file with one repeating event per dose time, each with an alarm at
  * that time. Times are "floating" (the phone's own clock), so travel or summer
  * time never moves a dose.
- * items: [{name, dose, times:[minutes], days, everyDays}]
+ * Each reminder keeps the same UID every time it is made (prescription · drug · dose
+ * number) with a newer SEQUENCE, so adding again can update instead of duplicate
+ * (whether it does is up to the phone's calendar — a page can never delete events).
+ * items: [{pos (drug position on the prescription), name, dose, times:[minutes], days, everyDays}]
  */
-export function buildIcs({ rxNo, clinic, doctor, items, start, now = new Date() }) {
+export function buildIcs({ rxNo, clinic, doctor, date = '', items, start, now = new Date() }) {
+  const id = rxId({ clinic, rxNo, date, doctor })
+  const seq = Math.floor(now.getTime() / 60000) - 29000000
   const L = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//CLINOSIS//Medicine reminders//AR', 'CALSCALE:GREGORIAN', 'METHOD:PUBLISH']
   const stamp = icsUTC(now)
   items.forEach((x, i) => {
@@ -154,7 +166,8 @@ export function buildIcs({ rxNo, clinic, doctor, items, start, now = new Date() 
       const at = new Date(start.getFullYear(), start.getMonth(), start.getDate(), 0, t)
       const title = x.dose ? `${x.name} · ${x.dose}` : x.name
       L.push('BEGIN:VEVENT',
-        `UID:clinosis-rx${rxNo}-${i + 1}-${k + 1}-${stamp}@clinosis`,
+        `UID:clinosis-${id}-d${(x.pos ?? i) + 1}-n${k + 1}@clinosis`,
+        `SEQUENCE:${Math.max(0, seq)}`,
         `DTSTAMP:${stamp}`,
         `DTSTART:${icsLocal(at)}`,
         'DURATION:PT15M',

@@ -1,7 +1,7 @@
 // CLINOSIS prescription page: the pharmacist sees whether the prescription is
 // genuine (SPEC §20.16); the patient sees their drugs and sets medicine reminders
 // on their own phone (SPEC §20.54). Nothing leaves the phone.
-import { checkRx, drName, parseDays, parseDose, doseTimes, clock, firstDay, buildIcs } from './rx-core.js'
+import { checkRx, drName, parseDays, parseDose, doseTimes, clock, firstDay, buildIcs, rxId } from './rx-core.js'
 
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c])
 const $ = (sel, root = document) => root.querySelector(sel)
@@ -14,6 +14,28 @@ const timesWord = (n) => (n === 1 ? 'مرة' : n === 2 ? 'مرتين' : `${n} م
 
 let rx = null      // the checked prescription
 let plans = []     // per drug: {on, perDay, everyDays, intervalH, bedtime, days, prn}
+
+// This phone remembers only that reminders were added for a prescription (an id, no drug names),
+// so a second add can first ask to delete the old ones: a page can never delete calendar events.
+const addedKey = () => `clinosis.added.${rxId(rx)}`
+const wasAdded = () => { try { return localStorage.getItem(addedKey()) === '1' } catch { return false } }
+const markAdded = () => { try { localStorage.setItem(addedKey(), '1') } catch { /* private mode */ } }
+
+// iPhone: only Safari hands a calendar file to the Calendar; Brave, Chrome, Firefox and
+// in-app browsers download it instead, so they are sent to Safari with the same link.
+const isIOS = () => /iPhone|iPad|iPod/.test(navigator.userAgent) || (/Macintosh/.test(navigator.userAgent) && navigator.maxTouchPoints > 1)
+async function iosNotSafari() {
+  if (!isIOS()) return false
+  if (/CriOS|FxiOS|EdgiOS|OPiOS|OPT\/|GSA\/|FBAN|FBAV|Instagram|Line\/|WhatsApp|Snapchat|DuckDuckGo|YaBrowser|Brave/.test(navigator.userAgent)) return true
+  try { if (navigator.brave && (await navigator.brave.isBrave())) return true } catch { /* not Brave */ }
+  return false
+}
+function safariLink() {
+  const u = new URL(location.href)
+  u.searchParams.set('remind', '1')
+  return 'x-safari-' + u.href
+}
+const deleteSteps = 'افتح الميعاد في التقويم ← <span dir="ltr">Delete Event</span> ← <span dir="ltr">Delete All Future Events</span>، لكل ميعاد.'
 
 async function run() {
   const code = location.hash.replace(/^#\/?(verify\/)?/, '')
@@ -65,6 +87,7 @@ function openRemind() {
   box.innerHTML = `
     <div class="panel" id="panel">
       <h3>${bellIcon}<span>مواعيد الدوا</span></h3>
+      ${wasAdded() ? `<p class="warn">ضفت مواعيد للروشتة دي قبل كده. امسح القديمة الأول عشان ما تتكررش: ${deleteSteps}</p>` : ''}
       ${finishedLongAgo() ? `<p class="warn">الروشتة دي من <span class="num">${esc(dmy(rx.date))}</span> ومدتها خلصت. اسأل دكتورك قبل ما تعيد الدوا.</p>` : ''}
       <label class="start"><span>أول جرعة الساعة كام؟</span><input type="time" id="start" value="08:00" step="900"></label>
       <div class="plans">${rx.drugs.map((d, i) => planRow(d, i)).join('')}</div>
@@ -166,19 +189,35 @@ async function make() {
   const s = startMin()
   const now = new Date()
   const start = firstDay(now, s)
-  const items = chosen.map(({ p, i }) => ({ name: rx.drugs[i].name, dose: rx.drugs[i].dose, times: doseTimes(p, s), days: p.days, everyDays: p.everyDays }))
-  const ics = buildIcs({ rxNo: rx.rxNo, clinic: rx.clinic, doctor: rx.doctor, items, start, now })
+  if (await iosNotSafari()) return toSafari()
+  const items = chosen.map(({ p, i }) => ({ pos: i, name: rx.drugs[i].name, dose: rx.drugs[i].dose, times: doseTimes(p, s), days: p.days, everyDays: p.everyDays }))
+  const ics = buildIcs({ rxNo: rx.rxNo, clinic: rx.clinic, doctor: rx.doctor, date: rx.date, items, start, now })
   const name = `clinosis-rx-${rx.rxNo}.ics`
   const delivered = await deliver(ics, name)
+  if (delivered !== 'cancelled') markAdded()
   done(items, start, now, ics, name, delivered)
+}
+
+function toSafari() {
+  $('#remind').innerHTML = `
+    <div class="panel" role="alert">
+      <h3>${bellIcon}<span>افتح الصفحة في Safari</span></h3>
+      <p class="warn">المتصفح ده على الآيفون مش بيقدر يضيف للتقويم. Safari بس اللي بيقدر.</p>
+      <a class="btn primary" href="${esc(safariLink())}">افتحها في Safari</a>
+      <button type="button" class="btn ghost" id="copy">انسخ الرابط</button>
+      <p class="hint" id="copied" hidden>اتنسخ. افتح Safari والزقه فوق.</p>
+    </div>`
+  $('#copy').addEventListener('click', async () => {
+    const u = new URL(location.href); u.searchParams.set('remind', '1')
+    try { await navigator.clipboard.writeText(u.href); $('#copied').hidden = false } catch { prompt('انسخ الرابط ده:', u.href) }
+  })
 }
 
 /** Hands the file to the phone's calendar: share sheet on Android, Calendar sheet on iPhone, a download elsewhere. */
 async function deliver(ics, name) {
   const blob = new Blob([ics], { type: 'text/calendar;charset=utf-8' })
   const ua = navigator.userAgent
-  const ios = /iPhone|iPad|iPod/.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1)
-  if (ios) { location.href = URL.createObjectURL(blob); return 'ios' }
+  if (isIOS()) { location.href = URL.createObjectURL(blob); return 'ios' }
   try {
     const file = new File([blob], name, { type: 'text/calendar' })
     if (/Android/.test(ua) && navigator.canShare && navigator.canShare({ files: [file] })) {
@@ -215,6 +254,7 @@ function done(items, start, now, ics, name, how) {
           <span class="when">${x.times.map((t) => `<bdi>${clock(t)}</bdi>`).join(' · ')}</span>
           <span class="dose">${x.everyDays === 2 ? 'يوم بعد يوم' : x.everyDays === 7 ? 'مرة في الأسبوع' : 'كل يوم'} · لمدة ${dayWord(x.days)} · تبدأ ${when}</span></li>`).join('')}</ul>
       <p class="hint">${total === 1 ? 'تذكير واحد' : total <= 10 ? `${total} تذكيرات` : `${total} تذكير`}. لو التقويم ما فتحش لوحده، افتح الملف <span class="num">${esc(name)}</span> من التنزيلات.</p>
+      ${isIOS() ? `<p class="hint">لو نزل ملف بدل ما يفتح التقويم: <a href="${esc(safariLink())}">افتح الصفحة في Safari</a>.</p>` : ''}
       <button type="button" class="btn primary" id="again">ضيفها تاني</button>
       <button type="button" class="btn ghost" id="edit">تعديل المواعيد</button>
     </div>`
@@ -222,5 +262,8 @@ function done(items, start, now, ics, name, how) {
   $('#edit').addEventListener('click', openRemind)
 }
 
-run()
+// Opened from "افتحها في Safari": go straight to the reminders.
+const wantRemind = new URLSearchParams(location.search).get('remind') === '1'
+if (wantRemind) history.replaceState(null, '', location.pathname + location.hash)
+run().then(() => { if (wantRemind && rx) openRemind() })
 window.addEventListener('hashchange', run)

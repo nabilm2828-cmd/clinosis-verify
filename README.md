@@ -28,4 +28,3 @@ QR codes printed earlier keep working: old prescriptions just have no duration, 
 A domain of your own can be added later (GitHub Pages › Custom domain); then change `RX_VERIFY_URL`.
 
 `OWNER_PUBLIC_KEY` in `rx-core.js` is the public half of the key in `owner-keys` (the one that signs licenses); never change it.
-

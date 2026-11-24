@@ -89,3 +89,5 @@ input.bad { border-color: var(--bad); background: var(--bad-bg); }
 .when { color: var(--ok-text); font-weight: 800; font-family: Manrope, Cairo, sans-serif; }
 .hint .num { white-space: nowrap; }
 @media (prefers-reduced-motion: reduce) { .panel, .shake { animation: none; } .btn, .chip { transition: none; } }
+.hint a { color: var(--teal); font-weight: 800; }
+a.btn { text-decoration: none; box-sizing: border-box; }
