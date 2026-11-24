@@ -100,3 +100,8 @@ input[type=date]:focus { border-color: var(--teal); }
 .warn.again p { margin: 0; }
 .ack { display: flex; align-items: center; gap: 10px; background: #fff; border-radius: 10px; padding: 10px 12px; min-height: 44px; cursor: pointer; color: var(--navy); }
 .ack input { width: 22px; height: 22px; accent-color: var(--teal); flex-shrink: 0; }
+.add-row { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+a.chip.add { display: inline-flex; align-items: center; gap: 6px; text-decoration: none; font-family: Manrope, Cairo, sans-serif; background: #fff; border-color: var(--teal); color: var(--teal); }
+a.chip.add::before { content: '+'; font-weight: 800; }
+a.chip.add.on { background: var(--teal); color: #fff; }
+a.chip.add.on::before { content: '✓'; }

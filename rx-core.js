@@ -171,15 +171,40 @@ export function buildIcs({ rxNo, clinic, doctor, date = '', items, start, now = 
         `SEQUENCE:${Math.max(0, seq)}`,
         `DTSTAMP:${stamp}`,
         `DTSTART:${icsLocal(at)}`,
-        'DURATION:PT15M',
+        `DTEND:${icsLocal(new Date(at.getTime() + 15 * 60000))}`,
         `RRULE:FREQ=DAILY;INTERVAL=${every};COUNT=${count}`,
         `SUMMARY:${icsText(title)}`,
         `DESCRIPTION:${icsText(`RX-${rxNo} · ${clinic} · ${drName(doctor)}`)}`,
-        'TRANSP:TRANSPARENT',
         'BEGIN:VALARM', 'ACTION:DISPLAY', `DESCRIPTION:${icsText(title)}`, 'TRIGGER:PT0M', 'END:VALARM',
         'END:VEVENT')
     })
   })
   L.push('END:VCALENDAR')
   return L.map(fold).join('\r\n') + '\r\n'
+}
+
+/**
+ * Android: one link per dose time that opens the phone's own calendar app on a new,
+ * already-filled repeating event (Android's standard "insert event" request; Chrome and
+ * Samsung Internet open intent: links). The patient taps Save. Nothing goes online.
+ * Returns [{pos, k, name, time, url}].
+ */
+export function androidLinks({ rxNo, clinic, doctor, items }) {
+  const out = []
+  const enc = (v) => encodeURIComponent(v)
+  items.forEach((x, i) => {
+    const every = x.everyDays || 1
+    const count = Math.max(1, Math.ceil(x.days / every))
+    const s0 = x.start
+    x.times.forEach((t, k) => {
+      const at = new Date(s0.getFullYear(), s0.getMonth(), s0.getDate(), 0, t)
+      const title = x.dose ? `${x.name} · ${x.dose}` : x.name
+      const url = 'intent:#Intent;action=android.intent.action.INSERT;type=vnd.android.cursor.item/event;'
+        + `S.title=${enc(title)};S.description=${enc(`RX-${rxNo} · ${clinic} · ${drName(doctor)}`)};`
+        + `l.beginTime=${at.getTime()};l.endTime=${at.getTime() + 15 * 60000};`
+        + `S.rrule=${enc(`FREQ=DAILY;INTERVAL=${every};COUNT=${count}`)};i.availability=1;end`
+      out.push({ pos: x.pos ?? i, k, name: x.name, time: t, url })
+    })
+  })
+  return out
 }

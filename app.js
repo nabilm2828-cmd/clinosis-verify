@@ -1,7 +1,7 @@
 // CLINOSIS prescription page: the pharmacist sees whether the prescription is
 // genuine (SPEC §20.16); the patient sees their drugs and sets medicine reminders
 // on their own phone (SPEC §20.54). Nothing leaves the phone.
-import { checkRx, drName, parseDays, parseDose, doseTimes, clock, firstDay, buildIcs, rxId } from './rx-core.js'
+import { checkRx, drName, parseDays, parseDose, doseTimes, clock, firstDay, buildIcs, rxId, androidLinks } from './rx-core.js'
 
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c])
 const $ = (sel, root = document) => root.querySelector(sel)
@@ -209,9 +209,41 @@ async function make() {
   const start = items[0].start
   const ics = buildIcs({ rxNo: rx.rxNo, clinic: rx.clinic, doctor: rx.doctor, date: rx.date, items, start, now })
   const name = `clinosis-rx-${rx.rxNo}.ics`
+  // Android calendars often refuse a downloaded file (owner's Honor, 25 Nov 2026): open the calendar app instead.
+  if (/Android/.test(navigator.userAgent)) return androidAdd(items, ics, name)
   const delivered = await deliver(ics, name)
   if (delivered !== 'cancelled') markAdded()
   done(items, start, now, ics, name, delivered)
+}
+
+function androidAdd(items, ics, name) {
+  const links = androidLinks({ rxNo: rx.rxNo, clinic: rx.clinic, doctor: rx.doctor, items })
+  const today = new Date(); today.setHours(0, 0, 0, 0)
+  const when = (d) => { const n = Math.round((d - today) / 864e5); return n === 0 ? 'النهارده' : n === 1 ? 'بكرة' : `يوم <span class="num">${d.getDate()}/${d.getMonth() + 1}</span>` }
+  $('#remind').innerHTML = `
+    <div class="panel" id="android">
+      <h3>${bellIcon}<span>ضيف كل ميعاد للتقويم</span></h3>
+      <p class="hint">دوس على كل ميعاد: التقويم هيفتح والميعاد متكتب، دوس "حفظ" وارجع هنا للي بعده.</p>
+      <ul class="sched">${items.map((x) => `
+        <li><span class="drug">${esc(x.name)}</span>
+          <span class="dose">${x.everyDays === 2 ? 'يوم بعد يوم' : x.everyDays === 7 ? 'مرة في الأسبوع' : 'كل يوم'} · لمدة ${dayWord(x.days)} · تبدأ ${when(x.start)}</span>
+          <span class="add-row">${links.filter((l) => l.pos === x.pos).map((l) => `<a class="chip add" href="${esc(l.url)}" data-k="${l.pos}-${l.k}"><bdi>${clock(l.time)}</bdi></a>`).join('')}</span></li>`).join('')}</ul>
+      <p class="hint" id="left"></p>
+      <button type="button" class="btn ghost" id="file">التقويم ما فتحش؟ نزّل ملف المواعيد</button>
+      <button type="button" class="btn ghost" id="edit">تعديل المواعيد</button>
+    </div>`
+  const left = () => {
+    const n = document.querySelectorAll('#android a.add:not(.on)').length
+    $('#left').textContent = n ? `فاضل ${n === 1 ? 'ميعاد واحد' : n === 2 ? 'ميعادين' : `${n} مواعيد`}.` : 'كده كل المواعيد اتضافت.'
+  }
+  $('#android').addEventListener('click', (e) => {
+    const a = e.target.closest('a.add')
+    if (!a) return
+    a.classList.add('on'); a.setAttribute('aria-label', 'اتضاف'); markAdded(); left()
+  })
+  $('#file').addEventListener('click', () => { download(new Blob([ics], { type: 'text/calendar;charset=utf-8' }), name); markAdded() })
+  $('#edit').addEventListener('click', openRemind)
+  left()
 }
 
 function toSafari() {
