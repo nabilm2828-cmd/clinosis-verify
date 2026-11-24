@@ -4,127 +4,28 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex">
-<title>التحقق من الروشتة · CLINOSIS</title>
+<title>روشتتك · CLINOSIS</title>
 <!--
-  CLINOSIS prescription check (SPEC §12.3, §20.16). A static page: the QR on
-  the prescription opens  <this page>#/verify/<code>. Everything is checked
-  here, in the phone's browser, with the owner's public key. The code after
-  "#" is never sent to any server, and nothing is stored.
-  Host it free on GitHub Pages; put its address in the clinic's .env as RX_VERIFY_URL.
-  Keep OWNER_PUBLIC_KEY in step with web/src/rxCode.ts.
+  CLINOSIS prescription page (SPEC §12.3, §20.16, §20.54, §26). Static files only:
+  the QR on the prescription opens  <this page>#/verify/<code>. The signature is
+  checked here, in the phone's browser, with the owner's public key; the patient
+  can turn the drugs into reminders on their own phone. The code after "#" is
+  never sent to any server, and nothing is stored.
+  Host it free on GitHub Pages (README.md); the program also serves it at /verify/.
 -->
-<style>
-@font-face { font-family: Cairo; font-weight: 400; font-display: swap; src: url(fonts/cairo-arabic-400-normal.woff2) format('woff2'); unicode-range: U+0600-06FF, U+0750-077F, U+FB50-FDFF, U+FE70-FEFF; }
-@font-face { font-family: Cairo; font-weight: 800; font-display: swap; src: url(fonts/cairo-arabic-800-normal.woff2) format('woff2'); unicode-range: U+0600-06FF, U+0750-077F, U+FB50-FDFF, U+FE70-FEFF; }
-@font-face { font-family: Cairo; font-weight: 400; font-display: swap; src: url(fonts/cairo-latin-400-normal.woff2) format('woff2'); }
-@font-face { font-family: Cairo; font-weight: 800; font-display: swap; src: url(fonts/cairo-latin-800-normal.woff2) format('woff2'); }
-@font-face { font-family: Manrope; font-weight: 800; font-display: swap; src: url(fonts/manrope-latin-800-normal.woff2) format('woff2'); }
-:root { --teal: #0E7C7B; --navy: #0F2A3A; --bg: #F6F9F9; --muted: #5B6F7B; --border: #E1EBEB; --divider: #EEF3F3;
-  --ok: #2E9E6B; --ok-bg: #E3F5EC; --ok-text: #1B6E49; --bad: #E4572E; --bad-bg: #FDEAE3; --bad-text: #9A2D10; }
-* { box-sizing: border-box; }
-html, body { margin: 0; background: var(--bg); color: var(--navy); font-family: Cairo, system-ui, sans-serif; }
-main { max-width: 520px; margin: 0 auto; padding: 28px 16px 24px; min-height: 100vh; display: flex; flex-direction: column; gap: 16px; }
-header { display: flex; flex-direction: column; align-items: center; gap: 10px; }
-h1 { margin: 0; font-size: 22px; }
-.card { background: #fff; border: 1px solid var(--border); border-radius: 22px; padding: 22px; box-shadow: 0 6px 18px rgba(15, 42, 58, .06); animation: rise .22s ease-out; }
-@keyframes rise { from { opacity: 0; transform: translateY(6px); } }
-@media (prefers-reduced-motion: reduce) { .card { animation: none; } }
-.state { display: flex; flex-direction: column; align-items: center; text-align: center; gap: 8px; }
-.ok { background: var(--ok-bg); border-color: #B7E2CB; }
-.bad { background: var(--bad-bg); border-color: #F4C9BC; }
-.icon { width: 64px; height: 64px; border-radius: 50%; display: grid; place-items: center; }
-.ok .icon { background: var(--ok); } .bad .icon { background: var(--bad); }
-.state h2 { margin: 4px 0 0; font-size: 26px; }
-.ok h2, .ok p { color: var(--ok-text); } .bad h2, .bad p { color: var(--bad-text); }
-.state p { margin: 0; font-size: 15px; }
-dl { display: grid; grid-template-columns: auto 1fr; margin: 0; }
-dt, dd { padding: 12px 0; border-top: 1px solid var(--divider); margin: 0; }
-dt:first-of-type, dt:first-of-type + dd { border-top: 0; }
-dt { color: var(--muted); } dd { font-weight: 800; text-align: left; }
-.num { font-family: Manrope, Cairo, sans-serif; direction: ltr; unicode-bidi: isolate; }
-h3 { margin: 0 0 12px; font-size: 17px; }
-ol { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
-li { background: var(--bg); border-radius: 12px; padding: 10px 14px; display: flex; flex-direction: column; gap: 2px; }
-.drug { font-family: Manrope, Cairo, sans-serif; font-weight: 800; direction: ltr; text-align: left; }
-.dose { color: var(--muted); font-size: 14px; }
-.note { color: var(--muted); font-size: 14px; margin: 12px 0 0; }
-footer { display: flex; gap: 8px; align-items: flex-start; color: var(--muted); font-size: 13px; margin-top: auto; padding: 8px 4px; }
-footer svg { flex-shrink: 0; margin-top: 2px; }
-.skeleton { height: 18px; border-radius: 9px; background: linear-gradient(90deg, #EEF3F3 25%, #F7FAFA 50%, #EEF3F3 75%); background-size: 200% 100%; animation: shimmer 1.2s infinite; margin: 8px 0; }
-@keyframes shimmer { to { background-position: -200% 0; } }
-</style>
+<link rel="stylesheet" href="style.css">
 </head>
 <body>
 <main>
   <header>
     <svg viewBox="-8 0 660 100" height="30" role="img" aria-label="CLINOSIS" style="direction:ltr"><path d="M75 20 A42 42 0 1 0 75 80" fill="none" stroke="#0F2A3A" stroke-width="16" stroke-linecap="round"/><path d="M108 8 V92 H158" fill="none" stroke="#0F2A3A" stroke-width="16" stroke-linecap="round" stroke-linejoin="round"/><rect x="186" y="8" width="22" height="84" rx="11" fill="#0F2A3A"/><rect x="186" y="50" width="22" height="42" rx="11" fill="#0E7C7B"/><rect x="186" y="50" width="22" height="20" fill="#0E7C7B"/><path d="M244 92 V8 L304 92 V8" fill="none" stroke="#0F2A3A" stroke-width="16" stroke-linecap="round" stroke-linejoin="round"/><circle cx="380" cy="50" r="40" fill="none" stroke="#0E7C7B" stroke-width="16"/><path d="M380 33 V67 M363 50 H397" stroke="#0F2A3A" stroke-width="12" stroke-linecap="round"/><path d="M500 24 C490 8 446 6 446 30 C446 52 500 46 500 70 C500 94 452 94 442 78" fill="none" stroke="#0F2A3A" stroke-width="16" stroke-linecap="round"/><rect x="532" y="8" width="22" height="84" rx="11" fill="#0F2A3A"/><rect x="532" y="50" width="22" height="42" rx="11" fill="#0E7C7B"/><rect x="532" y="50" width="22" height="20" fill="#0E7C7B"/><path d="M640 24 C630 8 586 6 586 30 C586 52 640 46 640 70 C640 94 592 94 582 78" fill="none" stroke="#0F2A3A" stroke-width="16" stroke-linecap="round"/></svg>
-    <h1>التحقق من الروشتة</h1>
-  </header>
+      </header>
   <div id="out"><section class="card"><div class="skeleton"></div><div class="skeleton"></div></section></div>
   <footer>
     <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>
-    <span>التحقق بيحصل على موبايلك من التوقيع اللي جوه الكود. مفيش أي بيانات مرضى متخزنة على النت.</span>
+    <span>البيانات دي مقروءة من الكود على موبايلك ومش متخزنة على أي سيرفر.</span>
   </footer>
 </main>
-<script>
-// Same check as web/src/rxCode.ts. Layout (base64url): 1 version · 32 clinic key ·
-// 64 owner certificate · 64 signature · text "licenseId␟clinic␟rxNo␟date␟doctor␟name␝dose␞…".
-const OWNER_PUBLIC_KEY = 'qmnoEHQx7Lzvadn5oBNUGyWkq+rhi24Hf/4l/NHPpG8='
-const b64 = (s) => Uint8Array.from(atob(s), (c) => c.charCodeAt(0))
-const b64url = (s) => b64(s.replace(/-/g, '+').replace(/_/g, '/') + '='.repeat((4 - (s.length % 4)) % 4))
-const toB64 = (b) => btoa(String.fromCharCode(...b))
-const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c])
-async function edVerify(pub, msg, sig) {
-  const key = await crypto.subtle.importKey('raw', pub, { name: 'Ed25519' }, false, ['verify'])
-  return crypto.subtle.verify({ name: 'Ed25519' }, key, sig, msg)
-}
-async function check(code) {
-  let raw
-  try { raw = b64url(code.trim()) } catch { return { ok: false } }
-  if (raw.length < 170 || raw[0] !== 1) return { ok: false }
-  if (!(window.crypto && crypto.subtle)) return { ok: false, unsupported: true }
-  const pub = raw.slice(1, 33), cert = raw.slice(33, 97), sig = raw.slice(97, 161), textBytes = raw.slice(161)
-  let text
-  try { text = new TextDecoder('utf-8', { fatal: true }).decode(textBytes) } catch { return { ok: false } }
-  const f = text.split('\x1f')
-  if (f.length !== 6) return { ok: false }
-  const [lic, clinic, rxNo, date, doctor, drugs] = f
-  const enc = new TextEncoder()
-  try {
-    const certOk = await edVerify(b64(OWNER_PUBLIC_KEY), enc.encode(`CLINOSIS-RX1|${lic}|${clinic}|${toB64(pub)}`), cert)
-    const msg = new Uint8Array([...enc.encode('CLINOSIS-RXSIG1|'), ...textBytes])
-    if (!certOk || !(await edVerify(pub, msg, sig))) return { ok: false }
-  } catch { return { ok: false, unsupported: true } }
-  return { ok: true, clinic, doctor, date, rxNo, drugs: drugs.split('\x1e').filter(Boolean).map((d) => { const [name, dose = ''] = d.split('\x1d'); return { name, dose } }) }
-}
-const drName = (n) => (/^\s*(د\s*\.|دكتور|Dr\.?\s)/i.test(n) ? n : 'د. ' + n)
-const okIcon = '<svg viewBox="0 0 24 24" width="34" height="34" fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>'
-const badIcon = '<svg viewBox="0 0 24 24" width="34" height="34" fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round"><path d="M7 7l10 10M17 7L7 17"/></svg>'
-async function run() {
-  const code = location.hash.replace(/^#\/?(verify\/)?/, '')
-  const out = document.getElementById('out')
-  const r = code ? await check(code) : { ok: false, empty: true }
-  if (r.ok) {
-    out.innerHTML = `
-      <section class="card state ok" role="status"><span class="icon" aria-hidden="true">${okIcon}</span><h2>روشتة سليمة</h2><p>الروشتة دي اتكتبت فعلًا من العيادة ومحدش عدّل فيها.</p></section>
-      <section class="card" style="margin-top:16px"><dl>
-        <dt>العيادة</dt><dd><bdi>${esc(r.clinic)}</bdi></dd>
-        <dt>الطبيب</dt><dd><bdi>${esc(drName(r.doctor))}</bdi></dd>
-        <dt>التاريخ</dt><dd><span class="num">${esc(r.date.split('-').reverse().join('/'))}</span></dd>
-        <dt>رقم الروشتة</dt><dd><span class="num">RX-${esc(r.rxNo)}</span></dd>
-      </dl></section>
-      <section class="card" style="margin-top:16px"><h3>الأدوية</h3><ol>${r.drugs.map((d, i) => `<li><span class="drug">${i + 1}. ${esc(d.name)}</span>${d.dose ? `<span class="dose">${esc(d.dose)}</span>` : ''}</li>`).join('')}</ol>
-        <p class="note">قارن الأدوية دي باللي مكتوب في الورقة. لو فيه اختلاف، الورقة اتعدّلت.</p></section>`
-  } else if (r.empty) {
-    out.innerHTML = `<section class="card state"><h2>امسح الكود</h2><p>امسح الـ QR اللي على الروشتة بكاميرا الموبايل.</p></section>`
-  } else if (r.unsupported) {
-    out.innerHTML = `<section class="card state bad" role="alert"><span class="icon" aria-hidden="true">${badIcon}</span><h2>المتصفح ده مش بيقدر يتحقق</h2><p>افتح الرابط من Chrome أو Safari حديث.</p></section>`
-  } else {
-    out.innerHTML = `<section class="card state bad" role="alert"><span class="icon" aria-hidden="true">${badIcon}</span><h2>الروشتة دي مش سليمة</h2><p>متصرفش الروشتة، واتصل بالعيادة.</p></section>`
-  }
-}
-run()
-window.addEventListener('hashchange', run)
-</script>
+<script type="module" src="app.js"></script>
 </body>
 </html>

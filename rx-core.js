@@ -1,0 +1,171 @@
+// CLINOSIS prescription QR — shared logic for the public page (SPEC §12.3, §20.16,
+// §20.54, §26). Pure functions, no page access: the page (app.js) and the tests
+// (tests/e2e/rx_patient.mjs, run with node) both import this file.
+//
+// QR layout (base64url): 1 version · 32 clinic key · 64 owner certificate · 64 signature ·
+// text "licenseId␟clinic␟rxNo␟date␟doctor␟drug␞drug…", each drug "name␝dose␝duration"
+// (prescriptions printed before M2.8b have no duration). Everything happens on the
+// phone: nothing is sent anywhere and nothing is stored.
+
+export const OWNER_PUBLIC_KEY = 'qmnoEHQx7Lzvadn5oBNUGyWkq+rhi24Hf/4l/NHPpG8='
+
+const b64 = (s) => Uint8Array.from(atob(s), (c) => c.charCodeAt(0))
+const b64url = (s) => b64(s.replace(/-/g, '+').replace(/_/g, '/') + '='.repeat((4 - (s.length % 4)) % 4))
+const toB64 = (b) => btoa(String.fromCharCode(...b))
+
+async function edVerify(pub, msg, sig) {
+  const key = await crypto.subtle.importKey('raw', pub, { name: 'Ed25519' }, false, ['verify'])
+  return crypto.subtle.verify({ name: 'Ed25519' }, key, sig, msg)
+}
+
+/** {ok:true, clinic, doctor, date, rxNo, drugs:[{name,dose,duration}]} or {ok:false, reason}. */
+export async function checkRx(code) {
+  let raw
+  try { raw = b64url(String(code).trim()) } catch { return { ok: false, reason: 'format' } }
+  if (raw.length < 170 || raw[0] !== 1) return { ok: false, reason: 'format' }
+  if (!(globalThis.crypto && crypto.subtle)) return { ok: false, reason: 'unsupported' }
+  const pub = raw.slice(1, 33), cert = raw.slice(33, 97), sig = raw.slice(97, 161), textBytes = raw.slice(161)
+  let text
+  try { text = new TextDecoder('utf-8', { fatal: true }).decode(textBytes) } catch { return { ok: false, reason: 'format' } }
+  const f = text.split('\x1f')
+  if (f.length !== 6) return { ok: false, reason: 'format' }
+  const [lic, clinic, rxNo, date, doctor, drugs] = f
+  const enc = new TextEncoder()
+  try {
+    const certOk = await edVerify(b64(OWNER_PUBLIC_KEY), enc.encode(`CLINOSIS-RX1|${lic}|${clinic}|${toB64(pub)}`), cert)
+    const msg = new Uint8Array([...enc.encode('CLINOSIS-RXSIG1|'), ...textBytes])
+    if (!certOk || !(await edVerify(pub, msg, sig))) return { ok: false, reason: 'signature' }
+  } catch { return { ok: false, reason: 'unsupported' } }
+  return {
+    ok: true, clinic, doctor, date, rxNo,
+    drugs: drugs.split('\x1e').filter(Boolean).map((d) => { const [name, dose = '', duration = ''] = d.split('\x1d'); return { name, dose, duration } }),
+  }
+}
+
+/** "د. Name" unless the name already starts with a title. */
+export const drName = (n) => (/^\s*(د\s*\.|دكتور|Dr\.?\s)/i.test(n) ? n : 'د. ' + n)
+
+const latin = (s) => String(s).replace(/[٠-٩]/g, (d) => '٠١٢٣٤٥٦٧٨٩'.indexOf(d)).replace(/[۰-۹]/g, (d) => '۰۱۲۳۴۵۶۷۸۹'.indexOf(d))
+
+/** "5 أيام" / "أسبوعين" / "شهر" / "10 days" → days; null when not clear (e.g. "مستمر"). Same rule as web/src/rxCode.ts. */
+export function parseDays(s) {
+  const t = latin(s).trim().toLowerCase()
+  if (!t) return null
+  const n = Number((t.match(/\d+/) ?? ['1'])[0])
+  if (/أسبوعين|اسبوعين/.test(t)) return 14
+  if (/شهرين/.test(t)) return 60
+  if (/يومين/.test(t)) return 2
+  if (/أسبوع|اسبوع|week/.test(t)) return n * 7
+  if (/شهر|month/.test(t)) return n * 30
+  if (/سنة|سنه|year/.test(t)) return n * 365
+  if (/يوم|أيام|ايام|day/.test(t)) return n
+  return /^\d+$/.test(t) ? n : null
+}
+
+/**
+ * Reads how often a dose is taken from what the doctor wrote.
+ * {prn:true} = only when needed (no reminder); {perDay, everyDays, intervalH, bedtime};
+ * null = not clear: the patient chooses. The patient always sees and can change the result.
+ */
+export function parseDose(s) {
+  const t = latin(s).toLowerCase().replace(/\s+/g, ' ').trim()
+  if (!t) return null
+  if (/عند اللزوم|وقت اللزوم|عند الحاجة|عند الحاجه|لو احتاج|\bprn\b|as needed|when needed|if needed/.test(t)) return { prn: true }
+  const bedtime = /قبل النوم|at bedtime|before sleep|\bhs\b/.test(t)
+  let everyDays = 1
+  if (/يوم بعد يوم|يوم ويوم لا|يوم آه ويوم لا|كل يومين|every other day|alternate days/.test(t)) everyDays = 2
+  else if (/(ف|في) ?(ال)?(أ|ا)سبوع|أسبوعي|اسبوعي|weekly|once a week|per week/.test(t)) everyDays = 7
+  const iv = t.match(/كل ?(\d+) ?(ساعات|ساعة|ساعه|س\b)|every ?(\d+) ?(h|hrs?|hours?)\b|\bq ?(\d+) ?h\b/)
+  if (iv) {
+    const h = Number(iv[1] ?? iv[3] ?? iv[5])
+    if (h >= 2 && h <= 24) return { perDay: Math.max(1, Math.round(24 / h)), everyDays: 1, intervalH: h, bedtime: false }
+  }
+  let perDay = null
+  let m
+  if (/مرتين|twice|\bbid\b|\bb\.i\.d\b/.test(t)) perDay = 2
+  else if (/(ثلاث|تلات|تلت) مرات|thrice|three times|\btid\b|\bt\.i\.d\b/.test(t)) perDay = 3
+  else if (/(أربع|اربع|اربعة) مرات|four times|\bqid\b|\bq\.i\.d\b/.test(t)) perDay = 4
+  else if ((m = t.match(/(\d+) ?(مرات|مرة|مره|times?)/))) perDay = Number(m[1])
+  else if ((m = t.match(/(\d+) ?[x×*] ?(\d+)/))) perDay = Number(m[2])
+  else if (/مرة|مره|once|يومي|يوميا|يومياً|يوميًا|daily|\bod\b|\bqd\b/.test(t) || bedtime || everyDays > 1) perDay = 1
+  if (!perDay || perDay < 1 || perDay > 6) return null
+  return { perDay, everyDays, intervalH: null, bedtime: bedtime && perDay === 1 }
+}
+
+/** Minutes from the start day's midnight for each dose (can pass midnight). */
+export function doseTimes(plan, startMin) {
+  if (!plan || plan.prn || !plan.perDay) return []
+  if (plan.bedtime && plan.perDay === 1) return [22 * 60]
+  const n = plan.perDay
+  if (plan.intervalH) return Array.from({ length: n }, (_, k) => startMin + k * plan.intervalH * 60)
+  if (n === 1) return [startMin]
+  // spread over the waking day: never more than 24/n hours apart, all within ~15 hours
+  const step = Math.round(Math.min(24 / n, 15 / (n - 1)) * 2) * 30
+  return Array.from({ length: n }, (_, k) => startMin + k * step)
+}
+
+/** Clock text for a minute count: "8:00 ص" / "8:00 AM". */
+export function clock(min, lang = 'ar') {
+  const m = ((min % 1440) + 1440) % 1440
+  const h = Math.floor(m / 60), mm = String(m % 60).padStart(2, '0')
+  const h12 = h % 12 === 0 ? 12 : h % 12
+  return lang === 'ar' ? `${h12}:${mm} ${h < 12 ? 'ص' : 'م'}` : `${h12}:${mm} ${h < 12 ? 'AM' : 'PM'}`
+}
+
+/** The first dose day: today, unless the chosen time already passed (15 minutes' grace). */
+export function firstDay(now, startMin) {
+  const d = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+  if (startMin < now.getHours() * 60 + now.getMinutes() - 15) d.setDate(d.getDate() + 1)
+  return d
+}
+
+const pad = (n) => String(n).padStart(2, '0')
+const icsLocal = (d) => `${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}T${pad(d.getHours())}${pad(d.getMinutes())}00`
+const icsUTC = (d) => d.toISOString().replace(/[-:]/g, '').replace(/\.\d+/, '')
+const icsText = (s) => String(s).replace(/\\/g, '\\\\').replace(/;/g, '\\;').replace(/,/g, '\\,').replace(/\r?\n/g, '\\n')
+
+/** Lines longer than 75 bytes are folded (RFC 5545), never inside a character. */
+function fold(line) {
+  const enc = new TextEncoder()
+  const out = []
+  let cur = '', size = 0, limit = 75
+  for (const ch of line) {
+    const n = enc.encode(ch).length
+    if (size + n > limit) { out.push(cur); cur = ''; size = 0; limit = 74 }
+    cur += ch; size += n
+  }
+  out.push(cur)
+  return out.join('\r\n ')
+}
+
+/**
+ * A calendar file with one repeating event per dose time, each with an alarm at
+ * that time. Times are "floating" (the phone's own clock), so travel or summer
+ * time never moves a dose.
+ * items: [{name, dose, times:[minutes], days, everyDays}]
+ */
+export function buildIcs({ rxNo, clinic, doctor, items, start, now = new Date() }) {
+  const L = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//CLINOSIS//Medicine reminders//AR', 'CALSCALE:GREGORIAN', 'METHOD:PUBLISH']
+  const stamp = icsUTC(now)
+  items.forEach((x, i) => {
+    const every = x.everyDays || 1
+    const count = Math.max(1, Math.ceil(x.days / every))
+    x.times.forEach((t, k) => {
+      const at = new Date(start.getFullYear(), start.getMonth(), start.getDate(), 0, t)
+      const title = x.dose ? `${x.name} · ${x.dose}` : x.name
+      L.push('BEGIN:VEVENT',
+        `UID:clinosis-rx${rxNo}-${i + 1}-${k + 1}-${stamp}@clinosis`,
+        `DTSTAMP:${stamp}`,
+        `DTSTART:${icsLocal(at)}`,
+        'DURATION:PT15M',
+        `RRULE:FREQ=DAILY;INTERVAL=${every};COUNT=${count}`,
+        `SUMMARY:${icsText(title)}`,
+        `DESCRIPTION:${icsText(`RX-${rxNo} · ${clinic} · ${drName(doctor)}`)}`,
+        'TRANSP:TRANSPARENT',
+        'BEGIN:VALARM', 'ACTION:DISPLAY', `DESCRIPTION:${icsText(title)}`, 'TRIGGER:PT0M', 'END:VALARM',
+        'END:VEVENT')
+    })
+  })
+  L.push('END:VCALENDAR')
+  return L.map(fold).join('\r\n') + '\r\n'
+}
