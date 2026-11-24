@@ -217,33 +217,37 @@ async function make() {
 }
 
 function androidAdd(items, ics, name) {
+  // Owner's Honor (25 Nov 2026): the calendar-app links did nothing, the file imported fine.
+  // So the file comes first (all doses in one import); the per-dose links stay for calendars that take them.
   const links = androidLinks({ rxNo: rx.rxNo, clinic: rx.clinic, doctor: rx.doctor, items })
   const today = new Date(); today.setHours(0, 0, 0, 0)
   const when = (d) => { const n = Math.round((d - today) / 864e5); return n === 0 ? 'النهارده' : n === 1 ? 'بكرة' : `يوم <span class="num">${d.getDate()}/${d.getMonth() + 1}</span>` }
+  const total = links.length
+  const save = () => { download(new Blob([ics], { type: 'text/calendar;charset=utf-8' }), name); markAdded(); $('#saved').hidden = false }
   $('#remind').innerHTML = `
     <div class="panel" id="android">
-      <h3>${bellIcon}<span>ضيف كل ميعاد للتقويم</span></h3>
-      <p class="hint">دوس على كل ميعاد: التقويم هيفتح والميعاد متكتب، دوس "حفظ" وارجع هنا للي بعده.</p>
+      <h3>${bellIcon}<span>ضيف المواعيد للتقويم</span></h3>
       <ul class="sched">${items.map((x) => `
         <li><span class="drug">${esc(x.name)}</span>
-          <span class="dose">${x.everyDays === 2 ? 'يوم بعد يوم' : x.everyDays === 7 ? 'مرة في الأسبوع' : 'كل يوم'} · لمدة ${dayWord(x.days)} · تبدأ ${when(x.start)}</span>
-          <span class="add-row">${links.filter((l) => l.pos === x.pos).map((l) => `<a class="chip add" href="${esc(l.url)}" data-k="${l.pos}-${l.k}"><bdi>${clock(l.time)}</bdi></a>`).join('')}</span></li>`).join('')}</ul>
-      <p class="hint" id="left"></p>
-      <button type="button" class="btn ghost" id="file">التقويم ما فتحش؟ نزّل ملف المواعيد</button>
+          <span class="when">${x.times.map((t) => `<bdi>${clock(t)}</bdi>`).join(' · ')}</span>
+          <span class="dose">${x.everyDays === 2 ? 'يوم بعد يوم' : x.everyDays === 7 ? 'مرة في الأسبوع' : 'كل يوم'} · لمدة ${dayWord(x.days)} · تبدأ ${when(x.start)}</span></li>`).join('')}</ul>
+      <button type="button" class="btn primary" id="file">نزّل المواعيد (${total === 1 ? 'تذكير واحد' : total <= 10 ? `${total} تذكيرات` : `${total} تذكير`})</button>
+      <ol class="steps" id="saved" hidden>
+        <li>افتح الملف <span class="num">${esc(name)}</span> من الإشعار اللي فوق أو من التنزيلات.</li>
+        <li>اختار <b>التقويم</b>، ووافق على الاستيراد. كل المواعيد هتتضاف مرة واحدة.</li>
+      </ol>
+      <details class="one-by-one"><summary>أو ضيف ميعاد ميعاد من غير ملف</summary>
+        <p class="hint">بيشتغل مع تقويم Google وSamsung. لو التقويم ما فتحش، استخدم الملف.</p>
+        ${items.map((x) => `<div class="add-row"><span class="drug">${esc(x.name)}</span>${links.filter((l) => l.pos === x.pos).map((l) => `<a class="chip add" href="${esc(l.url)}"><bdi>${clock(l.time)}</bdi></a>`).join('')}</div>`).join('')}
+      </details>
       <button type="button" class="btn ghost" id="edit">تعديل المواعيد</button>
     </div>`
-  const left = () => {
-    const n = document.querySelectorAll('#android a.add:not(.on)').length
-    $('#left').textContent = n ? `فاضل ${n === 1 ? 'ميعاد واحد' : n === 2 ? 'ميعادين' : `${n} مواعيد`}.` : 'كده كل المواعيد اتضافت.'
-  }
   $('#android').addEventListener('click', (e) => {
     const a = e.target.closest('a.add')
-    if (!a) return
-    a.classList.add('on'); a.setAttribute('aria-label', 'اتضاف'); markAdded(); left()
+    if (a) { a.classList.add('on'); markAdded() }
   })
-  $('#file').addEventListener('click', () => { download(new Blob([ics], { type: 'text/calendar;charset=utf-8' }), name); markAdded() })
+  $('#file').addEventListener('click', save)
   $('#edit').addEventListener('click', openRemind)
-  left()
 }
 
 function toSafari() {

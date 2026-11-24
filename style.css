@@ -105,3 +105,10 @@ a.chip.add { display: inline-flex; align-items: center; gap: 6px; text-decoratio
 a.chip.add::before { content: '+'; font-weight: 800; }
 a.chip.add.on { background: var(--teal); color: #fff; }
 a.chip.add.on::before { content: '✓'; }
+.steps { margin: 0; padding-inline-start: 22px; display: flex; flex-direction: column; gap: 6px; background: var(--ok-bg); color: var(--ok-text); border-radius: 12px; padding-block: 12px; padding-inline-end: 12px; font-weight: 800; font-size: 14px; }
+.one-by-one { border: 1px solid var(--border); border-radius: 14px; padding: 4px 14px; }
+.one-by-one summary { cursor: pointer; font-weight: 800; color: var(--muted); min-height: 44px; display: flex; align-items: center; }
+.one-by-one[open] { padding-bottom: 12px; display: flex; flex-direction: column; gap: 10px; }
+.one-by-one .add-row { align-items: center; margin-top: 0; }
+.one-by-one .add-row .drug { flex-basis: 100%; }
+.steps li { display: list-item; background: none; padding: 0; border-radius: 0; }
