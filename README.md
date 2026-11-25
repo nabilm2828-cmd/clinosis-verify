@@ -22,6 +22,7 @@ tested by `tests/e2e/rx_patient.mjs`), `fonts/`. Upload **all of them** together
    and restart CLINOSIS. Prescriptions printed after that carry the new address.
 
 ## Updating it
+Raise the `?v=` number in `index.html` (style.css, app.js) and in the `import` line of `app.js` (rx-core.js), so phones that kept the old page fetch the new files.
 Upload the changed files again to the same repository (same names replace the old ones).
 QR codes printed earlier keep working: old prescriptions just have no duration, so the patient types the days.
 
