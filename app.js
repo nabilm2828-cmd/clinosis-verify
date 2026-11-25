@@ -1,7 +1,7 @@
 // CLINOSIS prescription page: the pharmacist sees whether the prescription is
 // genuine (SPEC §20.16); the patient sees their drugs and sets medicine reminders
 // on their own phone (SPEC §20.54). Nothing leaves the phone.
-import { checkRx, drName, parseDays, parseDose, doseTimes, clock, firstDay, buildIcs, rxId, androidLinks } from './rx-core.js?v=6'
+import { checkRx, drName, parseDays, parseDose, doseTimes, clock, firstDay, buildIcs, rxId, androidLinks } from './rx-core.js?v=7'
 
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c])
 const $ = (sel, root = document) => root.querySelector(sel)
@@ -50,6 +50,7 @@ async function run() {
         : `<section class="card state bad" role="alert"><span class="icon" aria-hidden="true">${badIcon}</span><h2>الروشتة دي مش سليمة</h2><p>متصرفش الروشتة، واتصل بالعيادة.</p></section>`
     return
   }
+  if (r.type === 'report') { rx = null; return showReport(out, r) }
   rx = r
   plans = r.drugs.map((d) => {
     const p = parseDose(d.dose)
@@ -73,6 +74,34 @@ async function run() {
       <p class="note">للصيدلي: قارن الأدوية دي باللي مكتوب في الورقة. لو فيه اختلاف، الورقة اتعدّلت.</p>
     </section>`
   $('#open-remind').addEventListener('click', openRemind)
+}
+
+// ---------- a medical report / certificate (M2.8c) ----------
+const REPORT_KIND = { medical: 'تقرير طبي', sick_leave: 'إجازة مرضية', fitness: 'شهادة لياقة طبية', visit_summary: 'ملخص زيارة' }
+const RESULT = { fit: 'لائق طبيًا', restricted: 'لائق طبيًا بقيود', unfit: 'غير لائق طبيًا' }
+
+function showReport(out, r) {
+  let line = ''
+  if (r.kind === 'sick_leave' && r.from && r.days) {
+    const end = new Date(r.from + 'T00:00:00')
+    end.setDate(end.getDate() + Number(r.days) - 1)
+    const last = `${String(end.getDate()).padStart(2, '0')}/${String(end.getMonth() + 1).padStart(2, '0')}/${end.getFullYear()}`
+    line = `إجازة <span class="num">${esc(r.days)}</span> يوم، من <span class="num">${esc(dmy(r.from))}</span> لحد <span class="num">${esc(last)}</span>`
+  } else if (r.kind === 'fitness' && r.result) {
+    line = `${esc(RESULT[r.result] || r.result)}${r.purpose ? ` لـ <bdi>${esc(r.purpose)}</bdi>` : ''}`
+  }
+  out.innerHTML = `
+    <section class="card state ok" role="status"><span class="icon" aria-hidden="true">${okIcon}</span>
+      <h2>${esc(REPORT_KIND[r.kind] || 'تقرير')} سليم</h2><p>الورقة دي صادرة فعلًا من العيادة ومحدش عدّل في البيانات دي.</p></section>
+    <section class="card"><dl>
+      <dt>العيادة</dt><dd><bdi>${esc(r.clinic)}</bdi></dd>
+      <dt>الطبيب</dt><dd><bdi>${esc(drName(r.doctor))}</bdi></dd>
+      <dt>المريض</dt><dd><bdi>${esc(r.patient)}</bdi></dd>
+      <dt>التاريخ</dt><dd><span class="num">${esc(dmy(r.date))}</span></dd>
+      <dt>رقم التقرير</dt><dd><span class="num">RP-${esc(r.no)}</span></dd>
+      ${line ? `<dt>المضمون</dt><dd>${line}</dd>` : ''}
+    </dl>
+    <p class="note">قارن البيانات دي باللي مكتوب في الورقة. لو فيه اختلاف، الورقة اتعدّلت.</p></section>`
 }
 
 // ---------- reminders ----------

@@ -18,26 +18,42 @@ async function edVerify(pub, msg, sig) {
   return crypto.subtle.verify({ name: 'Ed25519' }, key, sig, msg)
 }
 
-/** {ok:true, clinic, doctor, date, rxNo, drugs:[{name,dose,duration}]} or {ok:false, reason}. */
+/**
+ * Checks a printed code. Version 1 = prescription:
+ *   {ok:true, type:'rx', clinic, doctor, date, rxNo, drugs:[{name,dose,duration}]}
+ * Version 2 = medical report / certificate (M2.8c), text "lic␟clinic␟no␟date␟doctor␟kind␟patient␟detail":
+ *   {ok:true, type:'report', clinic, doctor, date, no, kind, patient, from, days, result, purpose}
+ * or {ok:false, reason}.
+ */
 export async function checkRx(code) {
   let raw
   try { raw = b64url(String(code).trim()) } catch { return { ok: false, reason: 'format' } }
-  if (raw.length < 170 || raw[0] !== 1) return { ok: false, reason: 'format' }
+  if (raw.length < 170 || (raw[0] !== 1 && raw[0] !== 2)) return { ok: false, reason: 'format' }
+  const report = raw[0] === 2
   if (!(globalThis.crypto && crypto.subtle)) return { ok: false, reason: 'unsupported' }
   const pub = raw.slice(1, 33), cert = raw.slice(33, 97), sig = raw.slice(97, 161), textBytes = raw.slice(161)
   let text
   try { text = new TextDecoder('utf-8', { fatal: true }).decode(textBytes) } catch { return { ok: false, reason: 'format' } }
   const f = text.split('\x1f')
-  if (f.length !== 6) return { ok: false, reason: 'format' }
+  if (f.length !== (report ? 8 : 6)) return { ok: false, reason: 'format' }
   const [lic, clinic, rxNo, date, doctor, drugs] = f
   const enc = new TextEncoder()
   try {
     const certOk = await edVerify(b64(OWNER_PUBLIC_KEY), enc.encode(`CLINOSIS-RX1|${lic}|${clinic}|${toB64(pub)}`), cert)
-    const msg = new Uint8Array([...enc.encode('CLINOSIS-RXSIG1|'), ...textBytes])
+    const msg = new Uint8Array([...enc.encode(report ? 'CLINOSIS-REPSIG1|' : 'CLINOSIS-RXSIG1|'), ...textBytes])
     if (!certOk || !(await edVerify(pub, msg, sig))) return { ok: false, reason: 'signature' }
   } catch { return { ok: false, reason: 'unsupported' } }
+  if (report) {
+    const [, , no, day, dr, kind, patient, detail] = f
+    const [a = '', b = ''] = detail.split('\x1d')
+    return {
+      ok: true, type: 'report', clinic, doctor: dr, date: day, no, kind, patient,
+      from: kind === 'sick_leave' ? a : '', days: kind === 'sick_leave' ? b : '',
+      result: kind === 'fitness' ? a : '', purpose: kind === 'fitness' ? b : '',
+    }
+  }
   return {
-    ok: true, clinic, doctor, date, rxNo,
+    ok: true, type: 'rx', clinic, doctor, date, rxNo,
     drugs: drugs.split('\x1e').filter(Boolean).map((d) => { const [name, dose = '', duration = ''] = d.split('\x1d'); return { name, dose, duration } }),
   }
 }
