@@ -1,7 +1,7 @@
 // CLINOSIS prescription page: the pharmacist sees whether the prescription is
 // genuine (SPEC §20.16); the patient sees their drugs and sets medicine reminders
 // on their own phone (SPEC §20.54). Nothing leaves the phone.
-import { checkRx, drName, parseDays, parseDose, doseTimes, clock, firstDay, buildIcs, rxId, androidLinks } from './rx-core.js?v=7'
+import { checkRx, drName, parseDays, parseDose, doseTimes, clock, firstDay, buildIcs, rxId, androidLinks } from './rx-core.js?v=8'
 
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c])
 const $ = (sel, root = document) => root.querySelector(sel)
@@ -68,8 +68,8 @@ async function run() {
       <p class="rx-meta"><bdi>${esc(drName(r.doctor))}</bdi> · <span class="num">${esc(dmy(r.date))}</span> · <span class="num">RX-${esc(r.rxNo)}</span></p>
       <ol class="drugs">${r.drugs.map((d, i) => `
         <li><span class="drug"><span class="num">${i + 1}.</span> ${esc(d.name)}</span>
-          ${d.dose ? `<span class="dose">${esc(d.dose)}</span>` : ''}
-          ${d.duration ? `<span class="dur">المدة: ${esc(d.duration)}</span>` : ''}</li>`).join('')}</ol>
+          ${d.dose ? `<span class="dose" dir="auto">${esc(d.dose)}</span>` : ''}
+          ${d.duration ? `<span class="dur">المدة: <bdi>${esc(d.duration)}</bdi></span>` : ''}</li>`).join('')}</ol>
       <div id="remind"><button type="button" class="btn primary" id="open-remind">${bellIcon}<span>اضبط مواعيد الدوا</span></button></div>
       <p class="note">للصيدلي: قارن الأدوية دي باللي مكتوب في الورقة. لو فيه اختلاف، الورقة اتعدّلت.</p>
     </section>`
@@ -144,7 +144,7 @@ function planRow(d, i) {
   const every = p.everyDays === 2 ? 'يوم بعد يوم' : p.everyDays === 7 ? 'مرة في الأسبوع' : 'في اليوم'
   return `
     <div class="plan ${p.on ? '' : 'off'}" data-row="${i}">
-      <div class="plan-name"><span class="drug">${esc(d.name)}</span>${d.dose ? `<span class="dose">${esc(d.dose)}</span>` : ''}</div>
+      <div class="plan-name"><span class="drug">${esc(d.name)}</span>${d.dose ? `<span class="dose" dir="auto">${esc(d.dose)}</span>` : ''}</div>
       ${p.prn ? '<p class="hint">مكتوب "عند اللزوم"، فمفيش تذكير. لو عايز تذكير اختار عدد المرات.</p>' : ''}
       <div class="chips" role="group" aria-label="كام مرة ${every}">${chips}</div>
       <div class="plan-foot">
