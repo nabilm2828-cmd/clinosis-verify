@@ -130,3 +130,9 @@ a.chip.add.on::before { content: '✓'; }
 ::-webkit-scrollbar-button:single-button:vertical:increment { background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 6'%3E%3Cpath d='M0 0L5 6L10 0z' fill='%230F2A3A'/%3E%3C/svg%3E"); }
 ::-webkit-scrollbar-button:single-button:horizontal { display: none; }
 ::-webkit-scrollbar-corner { background: transparent; }
+/* glasses / contact-lens prescription (owner, 28 Nov 2026) */
+table.lens { width: 100%; border-collapse: collapse; margin-top: 14px; font-family: var(--font-num, Manrope, sans-serif); font-variant-numeric: tabular-nums; }
+table.lens th, table.lens td { border: 1px solid var(--border); padding: 8px 4px; text-align: center; font-size: 14px; }
+table.lens thead th { color: var(--muted); font-size: 12px; font-weight: 700; background: var(--divider); }
+table.lens tbody th { color: var(--teal); white-space: nowrap; }
+table.lens td { font-weight: 800; }

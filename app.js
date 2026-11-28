@@ -1,7 +1,7 @@
 // CLINOSIS prescription page: the pharmacist sees whether the prescription is
 // genuine (SPEC §20.16); the patient sees their drugs and sets medicine reminders
 // on their own phone (SPEC §20.54). Nothing leaves the phone.
-import { checkRx, drName, parseDays, parseDose, doseTimes, clock, firstDay, buildIcs, rxId, androidLinks } from './rx-core.js?v=8'
+import { checkRx, drName, parseDays, parseDose, doseTimes, clock, firstDay, buildIcs, rxId, androidLinks, lensNum, transpose } from './rx-core.js?v=9'
 
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c])
 const $ = (sel, root = document) => root.querySelector(sel)
@@ -51,6 +51,7 @@ async function run() {
     return
   }
   if (r.type === 'report') { rx = null; return showReport(out, r) }
+  if (r.type === 'glasses') { rx = null; return showGlasses(out, r) }
   rx = r
   plans = r.drugs.map((d) => {
     const p = parseDose(d.dose)
@@ -80,7 +81,8 @@ async function run() {
 const REPORT_KIND = { medical: 'تقرير طبي', sick_leave: 'إجازة مرضية', fitness: 'شهادة لياقة طبية', visit_summary: 'ملخص زيارة',
   referral: 'خطاب تحويل', peds_growth: 'تقرير نمو وتطور', peds_school: 'شهادة لياقة للحضانة / المدرسة', cardio_summary: 'تقرير حالة القلب',
   cardio_clearance: 'تقرير لياقة قلبية قبل إجراء', cardio_sports: 'شهادة لياقة قلبية للرياضة', physio_progress: 'تقرير تقدم العلاج الطبيعي',
-  physio_discharge: 'تقرير إنهاء العلاج الطبيعي', derm_condition: 'تقرير حالة جلدية', derm_procedure: 'تقرير إجراء جلدية', derm_biopsy: 'طلب فحص عينة' }
+  physio_discharge: 'تقرير إنهاء العلاج الطبيعي', derm_condition: 'تقرير حالة جلدية', derm_procedure: 'تقرير إجراء جلدية', derm_biopsy: 'طلب فحص عينة',
+  eye_report: 'تقرير عيون', eye_driving: 'شهادة نظر لرخصة القيادة' }
 const RESULT = { fit: 'لائق طبيًا', restricted: 'لائق طبيًا بقيود', unfit: 'غير لائق طبيًا' }
 
 function showReport(out, r) {
@@ -105,6 +107,40 @@ function showReport(out, r) {
       ${line ? `<dt>المضمون</dt><dd>${line}</dd>` : ''}
     </dl>
     <p class="note">قارن البيانات دي باللي مكتوب في الورقة. لو فيه اختلاف، الورقة اتعدّلت.</p></section>`
+}
+
+// glasses / contact lenses (owner, 28 Nov 2026): the optician compares the powers with the paper.
+// The paper may be printed in the other cylinder form; that form is shown too.
+const USE = { distance: 'للبعيد', near: 'للقراية', bifocal: 'بايفوكال', progressive: 'ملتي فوكال (Progressive)', office: 'للمكتب والكمبيوتر' }
+const CL_TYPE = { soft: 'Soft', toric: 'Toric', rgp: 'RGP (hard)', multifocal: 'Multifocal', cosmetic: 'Cosmetic', scleral: 'Scleral' }
+function lensTable(r, form) {
+  const rows = [['OD (R)', r.od], ['OS (L)', r.os]].map(([name, e]) => {
+    const x = form ? transpose(e) || e : e
+    const has = x.cyl && Number(x.cyl)
+    const last = r.kind === 'contact' ? `<td>${esc(x.a || '—')}</td><td>${esc(x.b || '—')}</td>` : `<td>${x.a ? `${esc(x.a)}Δ ${esc(x.b)}` : '—'}</td>`
+    return `<tr><th>${name}</th><td>${esc(lensNum(x.sph, !has))}</td><td>${has ? esc(lensNum(x.cyl)) : '—'}</td><td>${has ? esc(x.axis) + '°' : '—'}</td><td>${x.add ? esc(lensNum(x.add)) : '—'}</td>${last}</tr>`
+  }).join('')
+  return `<table class="lens" dir="ltr"><thead><tr><th></th><th>SPH</th><th>CYL</th><th>AXIS</th><th>ADD</th>${r.kind === 'contact' ? '<th>BC</th><th>DIA</th>' : '<th>PRISM</th>'}</tr></thead><tbody>${rows}</tbody></table>`
+}
+function showGlasses(out, r) {
+  const other = [r.od, r.os].some((e) => transpose(e))
+  const plus = [r.od, r.os].some((e) => Number(e.cyl) > 0)
+  out.innerHTML = `
+    <section class="card state ok" role="status"><span class="icon" aria-hidden="true">${okIcon}</span>
+      <h2>${r.kind === 'contact' ? 'روشتة عدسات لاصقة سليمة' : 'روشتة نضارة سليمة'}</h2><p>الروشتة دي صادرة فعلًا من العيادة ومحدش عدّل في المقاسات دي.</p></section>
+    <section class="card"><dl>
+      <dt>العيادة</dt><dd><bdi>${esc(r.clinic)}</bdi></dd>
+      <dt>الطبيب</dt><dd><bdi>${esc(drName(r.doctor))}</bdi></dd>
+      <dt>المريض</dt><dd><bdi>${esc(r.patient)}</bdi></dd>
+      <dt>التاريخ</dt><dd><span class="num">${esc(dmy(r.date))}</span></dd>
+      <dt>رقم الروشتة</dt><dd><span class="num">GL-${esc(r.no)}</span></dd>
+      ${r.use ? `<dt>الاستخدام</dt><dd>${esc(USE[r.use] || r.use)}</dd>` : ''}
+      ${r.pd ? `<dt>PD</dt><dd><span class="num" dir="ltr">${esc(r.pd)}${r.pdNear ? ` / ${esc(r.pdNear)}` : ''} mm</span></dd>` : ''}
+      ${r.lensType ? `<dt>العدسات</dt><dd><bdi dir="ltr">${esc(CL_TYPE[r.lensType] || r.lensType)}</bdi></dd>` : ''}
+    </dl>
+    ${lensTable(r, false)}
+    ${other ? `<p class="note">لو الروشتة مطبوعة بالـ Cylinder ${plus ? 'السالب (−)' : 'الموجب (+)'}، هي نفس المقاس بالشكل ده:</p>${lensTable(r, true)}` : ''}
+    <p class="note">قارن المقاسات دي باللي مكتوب في الروشتة. لو فيه اختلاف، الروشتة اتعدّلت.</p></section>`
 }
 
 // ---------- reminders ----------

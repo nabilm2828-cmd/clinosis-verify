@@ -23,26 +23,41 @@ async function edVerify(pub, msg, sig) {
  *   {ok:true, type:'rx', clinic, doctor, date, rxNo, drugs:[{name,dose,duration}]}
  * Version 2 = medical report / certificate (M2.8c), text "lic␟clinic␟no␟date␟doctor␟kind␟patient␟detail":
  *   {ok:true, type:'report', clinic, doctor, date, no, kind, patient, from, days, result, purpose}
+ * Version 3 = glasses / contact-lens prescription (owner, 28 Nov 2026), text
+ *   "lic␟clinic␟no␟date␟doctor␟kind␟patient␟OD␞OS␟extra", each eye "sph␝cyl␝axis␝add␝a␝b"
+ *   (glasses: prism, base; contact: BC, DIA), extra glasses "pd␝pdNear␝use", contact "type␝replacement":
+ *   {ok:true, type:'glasses', kind, clinic, doctor, date, no, patient, od, os, pd, pdNear, use, lensType, replacement}
  * or {ok:false, reason}.
  */
 export async function checkRx(code) {
   let raw
   try { raw = b64url(String(code).trim()) } catch { return { ok: false, reason: 'format' } }
-  if (raw.length < 170 || (raw[0] !== 1 && raw[0] !== 2)) return { ok: false, reason: 'format' }
-  const report = raw[0] === 2
+  if (raw.length < 170 || (raw[0] !== 1 && raw[0] !== 2 && raw[0] !== 3)) return { ok: false, reason: 'format' }
+  const report = raw[0] === 2, glasses = raw[0] === 3
   if (!(globalThis.crypto && crypto.subtle)) return { ok: false, reason: 'unsupported' }
   const pub = raw.slice(1, 33), cert = raw.slice(33, 97), sig = raw.slice(97, 161), textBytes = raw.slice(161)
   let text
   try { text = new TextDecoder('utf-8', { fatal: true }).decode(textBytes) } catch { return { ok: false, reason: 'format' } }
   const f = text.split('\x1f')
-  if (f.length !== (report ? 8 : 6)) return { ok: false, reason: 'format' }
+  if (f.length !== (glasses ? 9 : report ? 8 : 6)) return { ok: false, reason: 'format' }
   const [lic, clinic, rxNo, date, doctor, drugs] = f
   const enc = new TextEncoder()
   try {
     const certOk = await edVerify(b64(OWNER_PUBLIC_KEY), enc.encode(`CLINOSIS-RX1|${lic}|${clinic}|${toB64(pub)}`), cert)
-    const msg = new Uint8Array([...enc.encode(report ? 'CLINOSIS-REPSIG1|' : 'CLINOSIS-RXSIG1|'), ...textBytes])
+    const msg = new Uint8Array([...enc.encode(glasses ? 'CLINOSIS-EYESIG1|' : report ? 'CLINOSIS-REPSIG1|' : 'CLINOSIS-RXSIG1|'), ...textBytes])
     if (!certOk || !(await edVerify(pub, msg, sig))) return { ok: false, reason: 'signature' }
   } catch { return { ok: false, reason: 'unsupported' } }
+  if (glasses) {
+    const [, , no, day, dr, kind, patient, eyes, extra] = f
+    const [odS = '', osS = ''] = eyes.split('\x1e')
+    const eye = (s) => { const [sph = '', cyl = '', axis = '', add = '', a = '', b = ''] = s.split('\x1d'); return { sph, cyl, axis, add, a, b } }
+    const [x1 = '', x2 = '', x3 = ''] = extra.split('\x1d')
+    return {
+      ok: true, type: 'glasses', kind, clinic, doctor: dr, date: day, no, patient, od: eye(odS), os: eye(osS),
+      pd: kind === 'glasses' ? x1 : '', pdNear: kind === 'glasses' ? x2 : '', use: kind === 'glasses' ? x3 : '',
+      lensType: kind === 'contact' ? x1 : '', replacement: kind === 'contact' ? x2 : '',
+    }
+  }
   if (report) {
     const [, , no, day, dr, kind, patient, detail] = f
     const [a = '', b = ''] = detail.split('\x1d')
@@ -56,6 +71,23 @@ export async function checkRx(code) {
     ok: true, type: 'rx', clinic, doctor, date, rxNo,
     drugs: drugs.split('\x1e').filter(Boolean).map((d) => { const [name, dose = '', duration = ''] = d.split('\x1d'); return { name, dose, duration } }),
   }
+}
+
+/** Lens power as an optician reads it: "+1.25" / "−0.50" / "Plano" (empty → "—"). */
+export function lensNum(v, plano = false) {
+  if (v === '' || v == null) return '—'
+  const n = Number(v)
+  if (!Number.isFinite(n)) return '—'
+  if (n === 0) return plano ? 'Plano' : '0.00'
+  return (n > 0 ? '+' : '−') + Math.abs(n).toFixed(2)
+}
+
+/** The same lens in the other cylinder form: sphere + cylinder, the cylinder's sign flipped, axis turned 90°. */
+export function transpose(e) {
+  const cyl = Number(e.cyl)
+  if (!e.cyl || !cyl) return null
+  const ax = Number(e.axis || 0)
+  return { ...e, sph: String(Math.round((Number(e.sph || 0) + cyl) * 100) / 100), cyl: String(-cyl), axis: String(ax <= 90 ? ax + 90 : ax - 90) }
 }
 
 /** "د. Name" unless the name already starts with a title. */
