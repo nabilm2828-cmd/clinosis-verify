@@ -77,7 +77,10 @@ async function run() {
 }
 
 // ---------- a medical report / certificate (M2.8c) ----------
-const REPORT_KIND = { medical: 'تقرير طبي', sick_leave: 'إجازة مرضية', fitness: 'شهادة لياقة طبية', visit_summary: 'ملخص زيارة' }
+const REPORT_KIND = { medical: 'تقرير طبي', sick_leave: 'إجازة مرضية', fitness: 'شهادة لياقة طبية', visit_summary: 'ملخص زيارة',
+  referral: 'خطاب تحويل', peds_growth: 'تقرير نمو وتطور', peds_school: 'شهادة لياقة للحضانة / المدرسة', cardio_summary: 'تقرير حالة القلب',
+  cardio_clearance: 'تقرير لياقة قلبية قبل إجراء', cardio_sports: 'شهادة لياقة قلبية للرياضة', physio_progress: 'تقرير تقدم العلاج الطبيعي',
+  physio_discharge: 'تقرير إنهاء العلاج الطبيعي', derm_condition: 'تقرير حالة جلدية', derm_procedure: 'تقرير إجراء جلدية', derm_biopsy: 'طلب فحص عينة' }
 const RESULT = { fit: 'لائق طبيًا', restricted: 'لائق طبيًا بقيود', unfit: 'غير لائق طبيًا' }
 
 function showReport(out, r) {
